@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Generated demo output
+assets/preview/
+assets/recordings/
+*.mp4
+
+# Agent tooling scratch
+agent-tools/
+
+# OS / editor
+.DS_Store
+Thumbs.db

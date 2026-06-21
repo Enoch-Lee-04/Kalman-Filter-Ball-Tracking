@@ -1,0 +1,51 @@
+# Forward Model Ball Tracking - configuration
+# All tunable parameters live here so behaviour can be changed without editing code.
+
+arena:
+  width: 4.0          # x extent (meters)
+  depth: 4.0          # y extent (meters)
+  height: 1.5         # wall height (meters)
+
+ball:
+  radius: 0.18
+  speed: 1.5          # m/s, constant cruising speed
+  max_turn_deg: 55    # deg/s max heading change -> smooth curves (causes overshoot)
+  waypoint_interval: 3.5   # seconds before forcing a new random waypoint
+  margin: 0.4         # keep waypoints this far from walls
+  keep_out: 1.0       # ball steers around this radius near the robot (m)
+
+robot:
+  start_pos: [0.0, -1.9]   # x, y on the floor (stationary base, near wall)
+  base_radius: 0.28
+  base_height: 0.18
+
+camera:
+  width: 640
+  height: 480
+  fovy: 86             # vertical field of view (degrees) - wide so the arena fits
+  mount_height: 1.4    # camera height above robot base (angled top-down view)
+  tilt: 0.75           # downward tilt factor for the camera up-vector
+
+# Simulated perception/action latency. horizon = sense + think + move.
+latency_ms:
+  sense: 70
+  think: 60
+  move: 50
+
+sim:
+  dt_ms: 10            # simulation/frame timestep in milliseconds
+  realtime: true       # sleep to roughly match wall-clock time when viewing live
+
+# State is estimated in WORLD coordinates (meters) on the ground plane, then
+# projected back to the image. Constant-velocity in world space is an accurate
+# model for the ball, so predictions converge instead of diverging.
+forward_model:
+  process_noise: 6.0           # Q accel scale (m/s^2) - turning ball needs some
+  measurement_noise: 0.02      # R (m) - back-projected detection accuracy
+  initial_velocity_var: 25.0   # large -> velocity unknown at start -> early overshoot
+  residual_threshold_px: 9     # image-space residual to gain confidence
+  confidence_frames: 35        # consecutive good frames before the robot strikes
+
+perception:
+  detector: sim         # phase 1: "sim". phase 2: "yolo"
+  noise_px: 2.0         # gaussian noise added to simulated detections
