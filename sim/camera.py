@@ -31,23 +31,37 @@ class RobotCamera:
         rgb = self._renderer.render()
         return rgb[:, :, ::-1].copy()
 
-    def project(self, data: mujoco.MjData, world_xyz) -> Optional[Tuple[float, float, float]]:
-        """Project a world point to (u, v, depth). Returns None if behind camera.
+    def ensure_size(self, width: int, height: int) -> None:
+        """Resize the offscreen buffer when the target display size changes."""
+        width = max(1, int(width))
+        height = max(1, int(height))
+        if self.width == width and self.height == height:
+            return
+        self._renderer.close()
+        self.width = width
+        self.height = height
+        self._renderer = mujoco.Renderer(self.model, height, width)
+        self.focal = 0.5 * height / math.tan(math.radians(self.fovy) / 2.0)
 
-        depth is the distance along the camera's viewing axis (meters).
-        """
+    def project(self, data: mujoco.MjData, world_xyz) -> Optional[Tuple[float, float, float]]:
+        return self.project_at(data, world_xyz, self.width, self.height)
+
+    def project_at(self, data: mujoco.MjData, world_xyz,
+                    width: int, height: int) -> Optional[Tuple[float, float, float]]:
+        """Project a world point to (u, v, depth) at an arbitrary render resolution."""
+        focal = 0.5 * height / math.tan(math.radians(self.fovy) / 2.0)
         cam_pos = data.cam_xpos[self.cam_id]
-        cam_mat = data.cam_xmat[self.cam_id].reshape(3, 3)  # cols = cam axes in world
+        cam_mat = data.cam_xmat[self.cam_id].reshape(3, 3)
 
         rel = np.asarray(world_xyz, dtype=float) - cam_pos
-        local = cam_mat.T @ rel  # express point in camera frame
+        local = cam_mat.T @ rel
         xc, yc, zc = local
-        depth = -zc  # camera looks down its -Z axis
+        depth = -zc
         if depth <= 1e-4:
             return None
 
-        u = self.width / 2.0 + self.focal * (xc / depth)
-        v = self.height / 2.0 - self.focal * (yc / depth)
+        u = width / 2.0 + focal * (xc / depth)
+        v = height / 2.0 - focal * (yc / depth)
         return (u, v, depth)
 
     def unproject_to_plane(self, data, u: float, v: float, plane_z: float):
@@ -74,10 +88,15 @@ class RobotCamera:
         return np.array([hit[0], hit[1]], dtype=float)
 
     def bbox_for_sphere(self, data, world_xyz, radius) -> Optional[Tuple[int, int, int, int]]:
+        return self.bbox_for_sphere_at(data, world_xyz, radius, self.width, self.height)
+
+    def bbox_for_sphere_at(self, data, world_xyz, radius,
+                           width: int, height: int) -> Optional[Tuple[int, int, int, int]]:
         """Return an axis-aligned bbox (x1, y1, x2, y2) for a sphere, or None."""
-        p = self.project(data, world_xyz)
+        p = self.project_at(data, world_xyz, width, height)
         if p is None:
             return None
         u, v, depth = p
-        r_px = self.focal * radius / depth
+        focal = 0.5 * height / math.tan(math.radians(self.fovy) / 2.0)
+        r_px = focal * radius / depth
         return (int(u - r_px), int(v - r_px), int(u + r_px), int(v + r_px))

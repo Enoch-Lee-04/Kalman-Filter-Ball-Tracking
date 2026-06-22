@@ -10,6 +10,8 @@ import numpy as np
 from . import arena
 from .ball import Ball
 from .camera import RobotCamera
+from .orbit_camera import OrbitCamera
+from .render_pool import RenderPool
 from .robot import Robot
 
 
@@ -33,6 +35,14 @@ class SimWorld:
             self.model, arena.TOP_CAM,
             cfg["camera"]["width"], cfg["camera"]["height"],
         )
+        disp = cfg.get("display", {})
+        pool_w = disp.get("width", cfg["camera"]["width"])
+        pool_h = disp.get("height", cfg["camera"]["height"])
+        self._display_pool = RenderPool(self.model, pool_w, pool_h)
+        self.orbit_camera = OrbitCamera(self.model, cfg, self._display_pool)
+        self._robot_cam_id = self.camera.cam_id
+        ch, cw = cfg["camera"]["height"], cfg["camera"]["width"]
+        self._tracking_stub = np.zeros((ch, cw, 3), dtype=np.uint8)
 
         self._ball_mocap = self.model.body_mocapid[
             mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, arena.BALL_BODY)]
@@ -63,8 +73,64 @@ class SimWorld:
     def render_robot_view(self) -> np.ndarray:
         return self.camera.render_bgr(self.data)
 
+    @property
+    def tracking_frame(self) -> np.ndarray:
+        """Placeholder frame for the sim detector (uses 3D projection, not pixels)."""
+        return self._tracking_stub
+
+    def render_robot_display_view(self) -> np.ndarray:
+        """Render robot POV at pool resolution; composite downscales for inset size."""
+        return self._display_pool.render_bgr(self.data, self._robot_cam_id)
+
+    def display_ui_scale(self) -> float:
+        """Scale HUD layout relative to the tracking camera baseline."""
+        return self._display_pool.width / self.camera.width
+
+    def display_tracking(self, result) -> dict:
+        """Re-project tracking overlays to the display render resolution."""
+        dw, dh = self._display_pool.width, self._display_pool.height
+        cam = self.camera
+        plane_z = self.ball.radius
+        out = {
+            "match_bbox": None,
+            "match_center": None,
+            "predicted_center": None,
+            "predicted_bbox": None,
+        }
+
+        if result.detection_center is not None:
+            xy = cam.unproject_to_plane(
+                self.data, result.detection_center[0], result.detection_center[1], plane_z,
+            )
+            if xy is not None:
+                xyz = (xy[0], xy[1], plane_z)
+                p = cam.project_at(self.data, xyz, dw, dh)
+                if p is not None:
+                    out["match_center"] = np.array([p[0], p[1]])
+                    out["match_bbox"] = cam.bbox_for_sphere_at(
+                        self.data, xyz, self.ball.radius, dw, dh,
+                    )
+
+        if result.predicted_center is not None:
+            xy = cam.unproject_to_plane(
+                self.data, result.predicted_center[0], result.predicted_center[1], plane_z,
+            )
+            if xy is not None:
+                xyz = (xy[0], xy[1], plane_z)
+                p = cam.project_at(self.data, xyz, dw, dh)
+                if p is not None:
+                    out["predicted_center"] = np.array([p[0], p[1]])
+                    out["predicted_bbox"] = cam.bbox_for_sphere_at(
+                        self.data, xyz, self.ball.radius, dw, dh,
+                    )
+
+        return out
+
     def render_top_view(self) -> np.ndarray:
         return self.top_camera.render_bgr(self.data)
+
+    def render_orbit_view(self) -> np.ndarray:
+        return self.orbit_camera.render_bgr(self.data)
 
     def ball_image_center(self) -> Optional[np.ndarray]:
         """Ground-truth ball center in the robot image (no detector noise)."""

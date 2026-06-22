@@ -27,6 +27,7 @@ def build_xml(cfg: dict, pillars: Optional[Sequence[Pillar]] = None) -> str:
     ball = cfg["ball"]
     robot = cfg["robot"]
     cam = cfg["camera"]
+    disp = cfg.get("display", {})
 
     hw = arena["width"] / 2.0
     hd = arena["depth"] / 2.0
@@ -38,6 +39,10 @@ def build_xml(cfg: dict, pillars: Optional[Sequence[Pillar]] = None) -> str:
     bh = robot["base_height"]
 
     ball_r = ball["radius"]
+    tex_x = max(1, int(arena["width"] / 2.0))
+    tex_y = max(1, int(arena["depth"] / 2.0))
+    off_w = max(disp.get("width", 1280), disp.get("robot_width", cam["width"]), cam["width"])
+    off_h = max(disp.get("height", 720), disp.get("robot_height", cam["height"]), cam["height"])
 
     # Camera up-vector tilted downward so the floor is visible.
     tilt = cam["tilt"]
@@ -58,7 +63,7 @@ def build_xml(cfg: dict, pillars: Optional[Sequence[Pillar]] = None) -> str:
 <mujoco model="forward_model_arena">
   <option timestep="0.01" gravity="0 0 0"/>
   <visual>
-    <global offwidth="1280" offheight="960"/>
+    <global offwidth="{off_w}" offheight="{off_h}"/>
     <headlight ambient="0.35 0.35 0.35" diffuse="0.5 0.5 0.5" specular="0.1 0.1 0.1"/>
     <map znear="0.05"/>
   </visual>
@@ -66,7 +71,7 @@ def build_xml(cfg: dict, pillars: Optional[Sequence[Pillar]] = None) -> str:
   <asset>
     <texture name="grid" type="2d" builtin="checker" rgb1="0.12 0.12 0.14"
              rgb2="0.16 0.16 0.19" width="300" height="300"/>
-    <material name="floor_mat" texture="grid" texrepeat="6 6" reflectance="0.05"/>
+    <material name="floor_mat" texture="grid" texrepeat="{tex_x} {tex_y}" reflectance="0.05"/>
     <material name="wall_mat" rgba="0.20 0.21 0.24 1"/>
   </asset>
 
