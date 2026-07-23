@@ -1,6 +1,7 @@
 """SimWorld: owns the MuJoCo model/data and syncs mocap bodies each frame."""
 from __future__ import annotations
 
+import math
 import random
 from typing import Optional, Sequence
 
@@ -59,10 +60,23 @@ class SimWorld:
         self.data.mocap_quat[self._robot_mocap] = self.robot.facing_quat()
         mujoco.mj_forward(self.model, self.data)
 
-    def step(self, dt: float) -> None:
+    def step(self, dt: float, striking: bool = False) -> None:
         self.ball.set_keep_out_center(*self.robot.position)
-        self.ball.step(dt)
+        self.ball.step(dt, apply_keep_out=not striking)
         self._sync()
+
+    def strike_toward(self, target_xy: tuple[float, float], dt: float, speed: float) -> None:
+        self.robot.face_toward(target_xy[0], target_xy[1])
+        self.robot.move_toward(target_xy[0], target_xy[1], dt, speed)
+        self._sync()
+
+    def strike_contact_distance(self) -> float:
+        return self.robot.base_radius + self.ball.radius
+
+    def strike_connected(self, slop: float = 0.12) -> bool:
+        bx, by, _ = self.ball.position
+        rx, ry = self.robot.position
+        return math.hypot(bx - rx, by - ry) <= self.strike_contact_distance() + slop
 
     def relocate_robot_to_ball(self) -> None:
         bx, by, _ = self.ball.position

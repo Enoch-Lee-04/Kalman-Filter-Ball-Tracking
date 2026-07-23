@@ -28,6 +28,7 @@ class FrameResult:
     detection_center: Optional[np.ndarray]
     predicted_center: Optional[np.ndarray]
     predicted_bbox: Optional[tuple]
+    predicted_world: Optional[np.ndarray]
     residual_px: float
     confidence: float
     confident: bool
@@ -110,6 +111,7 @@ class TrackingController:
             detection_center=det.center if det else None,
             predicted_center=predicted_center,
             predicted_bbox=predicted_bbox,
+            predicted_world=predicted_world,
             residual_px=self.residual.smoothed,
             confidence=self.residual.confidence_ratio,
             confident=self.residual.confident,

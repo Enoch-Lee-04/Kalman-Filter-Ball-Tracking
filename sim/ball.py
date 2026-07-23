@@ -70,7 +70,7 @@ class Ball:
         self.heading = self.rng.uniform(-math.pi, math.pi)
         self._pick_waypoint()
 
-    def step(self, dt: float) -> Tuple[float, float, float]:
+    def step(self, dt: float, apply_keep_out: bool = True) -> Tuple[float, float, float]:
         self._waypoint_timer += dt
         if self._waypoint_timer >= self.waypoint_interval or self._reached_waypoint():
             self._pick_waypoint()
@@ -84,7 +84,8 @@ class Ball:
         self.y += vy * dt
 
         self._bounce()
-        self._avoid_keep_out()
+        if apply_keep_out:
+            self._avoid_keep_out()
         return self.position
 
     # -- internals --------------------------------------------------------

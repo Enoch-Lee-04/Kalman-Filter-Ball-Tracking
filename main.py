@@ -39,7 +39,8 @@ def load_config(path: str = "config.yaml") -> dict:
 
 
 def _draw_frame(frame: np.ndarray, result, controller, cfg, latency, status,
-                striking, ui_scale, view_state: ViewState, world: SimWorld) -> np.ndarray:
+                striking, ui_scale, view_state: ViewState, world: SimWorld,
+                hits: int, misses: int) -> np.ndarray:
     view_label = "Tab: robot view" if view_state.is_orbit else "Tab: orbit view"
     tracking = world.display_tracking(result) if view_state.is_robot else {
         "match_bbox": None,
@@ -64,6 +65,8 @@ def _draw_frame(frame: np.ndarray, result, controller, cfg, latency, status,
         tracking_scale=1.0,
         show_tracking=view_state.is_robot,
         view_label=view_label,
+        hits=hits,
+        misses=misses,
     )
     return frame
 
@@ -91,6 +94,8 @@ def run(headless_frames: int | None, show_top: bool, seed: int) -> None:
 
     strike_timer = 0.0
     status = "TRACKING"
+    strike_speed = cfg["robot"].get("strike_speed", 5.0)
+    strike_duration = cfg["robot"].get("strike_duration_s", 1.0)
 
     if headless_frames is not None:
         os.makedirs(PREVIEW_DIR, exist_ok=True)
@@ -100,10 +105,13 @@ def run(headless_frames: int | None, show_top: bool, seed: int) -> None:
     n = headless_frames if headless_frames is not None else 10 ** 12
     residual_samples: list[float] = []
     strikes = 0
+    hits = 0
+    misses = 0
 
     while frame_idx < n:
         loop_start = time.perf_counter()
-        world.step(dt)
+        striking = strike_timer > 0
+        world.step(dt, striking=striking)
         t += dt
 
         result = controller.step(t, dt, world.tracking_frame, world)
@@ -111,17 +119,24 @@ def run(headless_frames: int | None, show_top: bool, seed: int) -> None:
         if not np.isnan(result.residual_px):
             residual_samples.append(result.residual_px)
 
-        striking = strike_timer > 0
-        if result.confident and not striking:
+        if result.confident and strike_timer <= 0:
             status = "STRIKE"
-            strike_timer = 0.4
+            strike_timer = strike_duration
             strikes += 1
 
+        striking = strike_timer > 0
         if striking:
+            if result.predicted_world is not None:
+                world.strike_toward((result.predicted_world[0], result.predicted_world[1]),
+                                    dt, strike_speed)
             strike_timer -= dt
             if strike_timer <= 0:
-                world.relocate_robot_to_ball()
+                if world.strike_connected():
+                    hits += 1
+                else:
+                    misses += 1
                 world.ball.reset_far_from(*world.robot.position, facing=world.robot.facing)
+                world.robot.face_arena_center()
                 controller.reset()
                 status = "TRACKING"
 
@@ -131,7 +146,7 @@ def run(headless_frames: int | None, show_top: bool, seed: int) -> None:
             frame = world.render_robot_display_view()
 
         _draw_frame(frame, result, controller, cfg, latency, status, striking,
-                    ui_scale, view_state, world)
+                    ui_scale, view_state, world, hits, misses)
 
         if show_top:
             top = world.render_top_view()
@@ -173,7 +188,7 @@ def run(headless_frames: int | None, show_top: bool, seed: int) -> None:
             arr = np.array(residual_samples)
             print(f"residual px: min={arr.min():.1f} median={np.median(arr):.1f} "
                   f"p10={np.percentile(arr, 10):.1f} max={arr.max():.1f}")
-        print(f"strikes: {strikes}")
+        print(f"strikes: {strikes}  hits: {hits}  misses: {misses}")
 
 
 def main() -> None:

@@ -18,6 +18,8 @@ robot:
   start_pos: [0.0, -3.8]   # x, y on the floor (stationary base, near wall)
   base_radius: 0.28
   base_height: 0.18
+  strike_speed: 5.0        # m/s — how fast the robot charges during a strike
+  strike_duration_s: 1.0   # seconds — ball keeps moving freely until this ends
 
 camera:
   width: 640

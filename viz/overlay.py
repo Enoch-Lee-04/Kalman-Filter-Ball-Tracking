@@ -44,6 +44,8 @@ def draw(
     tracking_scale: float = 1.0,
     show_tracking: bool = True,
     view_label: str | None = None,
+    hits: int = 0,
+    misses: int = 0,
 ) -> np.ndarray:
     h, w = frame.shape[:2]
     img = frame
@@ -76,7 +78,7 @@ def draw(
                          (int(px), int(py)), PINK, max(1, int(round(ts))), cv2.LINE_AA)
 
     _draw_hud_panels(img, residual_px, residual_threshold, latency, status,
-                     confidence, horizon_ms, sx)
+                     confidence, horizon_ms, sx, hits, misses)
     if view_label:
         scale = 0.38 * sx
         thick = max(1, int(round(sx)))
@@ -86,11 +88,18 @@ def draw(
 
 
 def _draw_hud_panels(img, residual_px, residual_threshold, latency, status,
-                     confidence, horizon_ms, sx):
+                     confidence, horizon_ms, sx, hits=0, misses=0):
     _draw_residual_bar(img, residual_px, residual_threshold, sx)
     if latency:
         _draw_latency(img, latency, sx)
     _draw_banner(img, status, confidence, horizon_ms, sx)
+    if hits or misses:
+        h, w = img.shape[:2]
+        text = f"hits {hits}  misses {misses}"
+        scale = 0.42 * sx
+        thick = max(1, int(round(sx)))
+        (tw, _), _ = cv2.getTextSize(text, FONT, scale, thick)
+        _label(img, text, (w - tw - int(20 * sx), h - int(28 * sx)), GREY, scale, thick)
 
 
 def _scale_bbox(bbox, sx: float):

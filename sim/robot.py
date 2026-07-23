@@ -29,6 +29,13 @@ class Robot:
         # the robot always faces the arena centre so its camera sees the field
         self.target = (0.0, 0.0)
 
+    def face_toward(self, x: float, y: float) -> None:
+        """Point the camera at (x, y) on the ground plane."""
+        self.target = (x, y)
+
+    def face_arena_center(self) -> None:
+        self.target = (0.0, 0.0)
+
     @property
     def position(self) -> Tuple[float, float]:
         return (self.x, self.y)
@@ -46,6 +53,18 @@ class Robot:
         phi = math.atan2(self.target[1] - self.y, self.target[0] - self.x)
         alpha = phi - math.pi / 2.0  # body +Y starts along world +Y
         return np.array([math.cos(alpha / 2.0), 0.0, 0.0, math.sin(alpha / 2.0)])
+
+    def move_toward(self, x: float, y: float, dt: float, speed: float = 2.5) -> None:
+        """Physically advance toward (x, y) at constant speed."""
+        dx, dy = x - self.x, y - self.y
+        dist = math.hypot(dx, dy)
+        if dist < 1e-6:
+            return
+        step = min(speed * dt, dist)
+        self.x += dx / dist * step
+        self.y += dy / dist * step
+        self.x = max(-self.hw, min(self.hw, self.x))
+        self.y = max(-self.hd, min(self.hd, self.y))
 
     def relocate_near(self, x: float, y: float, standoff: float = 0.9) -> None:
         """Move to a new stationary spot a short distance from (x, y)."""
