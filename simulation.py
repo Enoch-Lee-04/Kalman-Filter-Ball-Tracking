@@ -27,16 +27,24 @@ class StrikeRecord:
     index: int
     start_frame: int
     start_t: float
-    start_dist_m: float        # robot -> ball distance when the robot committed
+    start_dist_m: float        # robot -> ball distance when the robot committed (truth)
+    start_est_dist_m: float    # the same distance as the robot's filter believed it
     start_residual_px: float   # smoothed residual that triggered the strike
     reach_m: float             # farthest a stationary ball could be and still be hit
     contact_limit_m: float
+    end_frame: int = -1        # contact on a hit, the end of the charge on a miss
+    end_t: float = math.nan
     end_dist_m: float = math.nan
+    closest_m: float = math.inf  # nearest the robot got to the ball during the charge
     hit: bool = False
 
     @property
     def beyond_reach(self) -> bool:
         return self.start_dist_m > self.reach_m
+
+    @property
+    def duration_s(self) -> float:
+        return self.end_t - self.start_t
 
 
 @dataclass
@@ -57,6 +65,7 @@ class RunStats:
     hits: int = 0
     misses: int = 0
     detection_frames: int = 0  # frames where the detector saw the ball
+    held_frames: int = 0       # confident, but the ball was out of reach: no strike
     # The smoothed (EMA) residual, sampled once per frame whenever defined.
     # These are the numbers main.py has always printed as "residual px".
     residual_samples: list[float] = field(default_factory=list)
@@ -87,10 +96,12 @@ class RunStats:
             "hits": self.hits,
             "misses": self.misses,
             "detection_frames": self.detection_frames,
+            "held_frames": self.held_frames,
             "out_of_view_frac": self.out_of_view_frac,
             "residual_px": self.residual_summary(),
             "strike_records": [
-                {**asdict(r), "beyond_reach": r.beyond_reach} for r in self.strike_records
+                {**asdict(r), "beyond_reach": r.beyond_reach, "duration_s": r.duration_s}
+                for r in self.strike_records
             ],
         }
 
@@ -112,6 +123,10 @@ class Simulation:
         rcfg = cfg["robot"]
         self.strike_speed = rcfg.get("strike_speed", 5.0)
         self.strike_duration = rcfg.get("strike_duration_s", 1.0)
+        # Farthest a ball that stood still could be and still be hit by one
+        # charge. See _ball_within_reach for how the robot uses it.
+        self.reach_m = (self.strike_speed * self.strike_duration
+                        + self.world.strike_contact_limit())
 
         self.t = 0.0
         self.frame = 0
@@ -138,7 +153,11 @@ class Simulation:
             stats.residual_samples.append(result.residual_px)
 
         if self.allow_strikes and result.confident and self._strike_timer <= 0:
-            self._begin_strike(result)
+            reachable, est_dist = self._ball_within_reach()
+            if reachable:
+                self._begin_strike(result, est_dist)
+            else:
+                stats.held_frames += 1  # confident, but a charge could not get there
 
         striking = self._strike_timer > 0
         finished = None
@@ -147,8 +166,19 @@ class Simulation:
                 world.strike_toward((result.predicted_world[0], result.predicted_world[1]),
                                     dt, self.strike_speed)
             self._strike_timer -= dt
-            if self._strike_timer <= 0:
-                finished = self._finish_strike()
+            self._strike.closest_m = min(self._strike.closest_m, world.robot_ball_distance())
+            # Contact is checked on every step of the charge: the robot can
+            # reach the ball mid-charge and then lose it again before the
+            # charge ends. Per-step movement (<= (strike_speed + ball speed) * dt,
+            # ~6.5 cm) is far below the contact limit, so nothing tunnels.
+            if world.strike_connected():
+                finished = self._finish_strike(hit=True)
+            elif self._strike_timer <= 0:
+                finished = self._finish_strike(hit=False)
+        elif result.predicted_world is not None:
+            # Tracking: turn in place toward where the forward model says the
+            # ball will be, keeping it in the middle of the next frames.
+            world.turn_robot_toward((result.predicted_world[0], result.predicted_world[1]), dt)
 
         info = StepInfo(frame=self.frame, t=self.t, result=result, status=self.status,
                         striking=striking, strike_finished=finished)
@@ -161,26 +191,52 @@ class Simulation:
         return self.stats
 
     # -- strike state machine ---------------------------------------------
-    def _begin_strike(self, result: FrameResult) -> None:
+    def _estimated_ball_distance(self, t: float) -> float:
+        """Robot -> ball distance at time t, as the robot's filter believes it
+        (no ground truth: the decision to strike must be the robot's own)."""
+        est = self.controller.estimate_at(t)
+        if est is None:
+            return math.inf
+        rx, ry = self.world.robot.position
+        return math.hypot(est[0] - rx, est[1] - ry)
+
+    def _ball_within_reach(self) -> tuple[bool, float]:
+        """Can a charge that starts now reach the ball? Returns (ok, the
+        estimated distance now).
+
+        The test: if the ball keeps its estimated velocity, is where it will be
+        when the charge window ends within reach? Because the ball is slower
+        than the charge, that is exactly "a straight-line intercept exists": a
+        ball that is reachable at any moment in the window is still reachable
+        at its end. Unlike a plain distance check, this skips a ball inside
+        reach that is running away, and allows one just outside it that is
+        coming closer."""
+        d_end = self._estimated_ball_distance(self.t + self.strike_duration)
+        return d_end <= self.reach_m, self._estimated_ball_distance(self.t)
+
+    def _begin_strike(self, result: FrameResult, est_dist: float) -> None:
         self.status = STRIKE
         self._strike_timer = self.strike_duration
         self.stats.strikes += 1
-        contact = self.world.strike_contact_limit()
         self._strike = StrikeRecord(
             index=self.stats.strikes,
             start_frame=self.frame,
             start_t=self.t,
             start_dist_m=self.world.robot_ball_distance(),
+            start_est_dist_m=est_dist,
             start_residual_px=result.residual_px,
-            reach_m=self.strike_speed * self.strike_duration + contact,
-            contact_limit_m=contact,
+            reach_m=self.reach_m,
+            contact_limit_m=self.world.strike_contact_limit(),
         )
 
-    def _finish_strike(self) -> StrikeRecord:
+    def _finish_strike(self, hit: bool) -> StrikeRecord:
         world, stats = self.world, self.stats
         rec = self._strike
+        rec.end_frame = self.frame
+        rec.end_t = self.t
         rec.end_dist_m = world.robot_ball_distance()
-        rec.hit = world.strike_connected()
+        rec.hit = hit
+        self._strike_timer = 0.0  # a hit ends the charge early
         if rec.hit:
             stats.hits += 1
         else:
@@ -188,8 +244,7 @@ class Simulation:
         stats.strike_records.append(rec)
         self._strike = None
 
-        world.ball.reset_far_from(*world.robot.position, facing=world.robot.facing)
-        world.robot.face_arena_center()
+        world.respawn_after_strike()
         self.controller.reset()
         self.status = TRACKING
         return rec

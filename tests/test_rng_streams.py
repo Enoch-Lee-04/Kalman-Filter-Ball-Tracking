@@ -20,7 +20,8 @@ def test_ball_path_ignores_filter_detector_and_camera_settings():
     """With the robot standing still, the ball's path depends only on the seed
     and the ball/arena config. Under the old shared generator the narrower
     camera (fewer visible frames -> fewer noise draws) moved the ball from
-    frame 264 on."""
+    frame 264 on. Turning is switched off in the changed run so the narrow
+    camera really does lose the ball; turning in place must not move it either."""
     cfg = load_config()
     base, base_stats = _ball_path(cfg)
     changed_cfg = apply_overrides(cfg, [
@@ -29,6 +30,7 @@ def test_ball_path_ignores_filter_detector_and_camera_settings():
         "forward_model.residual_threshold_px=20",
         "perception.noise_px=6.0",
         "camera.fovy=60",
+        "robot.turn_rate_deg_s=0",
     ])
     changed, changed_stats = _ball_path(changed_cfg)
     # the camera change really does alter how often the detector draws noise
@@ -59,7 +61,7 @@ def test_respawn_does_not_touch_motion_stream_and_vice_versa():
     ball = Ball(cfg, motion_rng=streams.ball_motion, respawn_rng=streams.respawn)
 
     motion_before = _state(streams.ball_motion)
-    ball.reset_far_from(0.0, -3.8, facing=(0.0, 1.0))
+    ball.reset_far_from(0.0, -3.8, visible=lambda x, y: y > -2.0)
     assert _state(streams.ball_motion) == motion_before
 
     respawn_before = _state(streams.respawn)

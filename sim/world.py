@@ -70,9 +70,38 @@ class SimWorld:
         self._sync()
 
     def strike_toward(self, target_xy: tuple[float, float], dt: float, speed: float) -> None:
-        self.robot.face_toward(target_xy[0], target_xy[1])
         self.robot.move_toward(target_xy[0], target_xy[1], dt, speed)
+        self.robot.face_toward(target_xy[0], target_xy[1])
         self._sync()
+
+    def turn_robot_toward(self, target_xy: tuple[float, float], dt: float) -> None:
+        """Turn in place (rate-limited) to bring target_xy to the image centre."""
+        self.robot.turn_toward(target_xy[0], target_xy[1], dt)
+        self._sync()
+
+    def respawn_after_strike(self) -> None:
+        """Reset the robot's gaze, then put the ball somewhere it can see.
+
+        Order matters: the robot turns back to the arena centre *first*, so the
+        visibility test uses the camera pose the robot will actually track
+        from. (Placing the ball in front of the strike heading and then turning
+        away left it out of view.)"""
+        self.robot.face_arena_center()
+        self.ball.set_keep_out_center(*self.robot.position)
+        self._sync()  # camera pose for the visibility test
+        self.ball.reset_far_from(*self.robot.position, visible=self.ground_point_in_view)
+        self._sync()
+
+    def ground_point_in_view(self, x: float, y: float, margin_frac: float = 0.1) -> bool:
+        """Would a ball centred at (x, y) project inside the robot camera's
+        frame, at least margin_frac of the frame away from every edge?"""
+        cam = self.camera
+        p = cam.project(self.data, (x, y, self.ball.radius))
+        if p is None:
+            return False
+        u, v, _ = p
+        mu, mv = margin_frac * cam.width, margin_frac * cam.height
+        return mu <= u <= cam.width - mu and mv <= v <= cam.height - mv
 
     def strike_contact_distance(self) -> float:
         return self.robot.base_radius + self.ball.radius

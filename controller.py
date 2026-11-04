@@ -62,6 +62,16 @@ class TrackingController:
         self.residual.reset()
         self._last_meas_t = None
 
+    def estimate_at(self, t: float) -> Optional[np.ndarray]:
+        """The filter's belief of the ball's world (x, y) at sim time t,
+        extrapolated at constant velocity from the last measurement it folded
+        in. Uses no ground truth; None until the filter has a measurement."""
+        pv = self.kalman.position_velocity()
+        if pv is None or self._last_meas_t is None:
+            return None
+        pos, vel = pv
+        return pos + vel * (t - self._last_meas_t)
+
     def step(self, t: float, dt: float, frame: np.ndarray, world) -> FrameResult:
         plane_z = world.ball.radius
 

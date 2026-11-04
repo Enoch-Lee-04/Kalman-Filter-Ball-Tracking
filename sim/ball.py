@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 import random
-from typing import Tuple
+from typing import Callable, Tuple
 
 import numpy as np
 
@@ -57,23 +57,30 @@ class Ball:
     def set_keep_out_center(self, x: float, y: float) -> None:
         self.avoid_x, self.avoid_y = x, y
 
-    def reset_far_from(self, x: float, y: float, facing=None) -> None:
-        """Place the ball away from (x, y) and, if a facing vector is given, in
-        front of the robot so it is immediately visible. Then pick a waypoint.
+    def reset_far_from(self, x: float, y: float,
+                       visible: Callable[[float, float], bool] | None = None,
+                       min_dist: float = 1.2, tries: int = 80) -> None:
+        """Place the ball more than min_dist from (x, y) and, if a visibility
+        test is given, where the robot's camera can see it. Then pick a waypoint.
+
+        If no draw passes the visibility test, the ball goes to the first draw
+        that was far enough away rather than staying where it was hit.
         All draws come from the respawn stream."""
         rng = self.respawn_rng
-        for _ in range(80):
+        fallback = None
+        for _ in range(tries):
             nx = rng.uniform(-self.hw, self.hw)
             ny = rng.uniform(-self.hd, self.hd)
-            if math.hypot(nx - x, ny - y) <= 1.2:
+            if math.hypot(nx - x, ny - y) <= min_dist:
                 continue
-            if facing is not None:
-                dx, dy = nx - x, ny - y
-                n = math.hypot(dx, dy) or 1.0
-                if (dx / n) * facing[0] + (dy / n) * facing[1] < 0.5:
-                    continue  # not in front of the camera
-            self.x, self.y = nx, ny
-            break
+            if fallback is None:
+                fallback = (nx, ny)
+            if visible is None or visible(nx, ny):
+                self.x, self.y = nx, ny
+                break
+        else:
+            if fallback is not None:
+                self.x, self.y = fallback
         self.heading = rng.uniform(-math.pi, math.pi)
         self._pick_waypoint(rng)
 

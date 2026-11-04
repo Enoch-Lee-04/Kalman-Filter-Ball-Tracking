@@ -19,7 +19,8 @@ robot:
   base_radius: 0.28
   base_height: 0.18
   strike_speed: 5.0        # m/s — how fast the robot charges during a strike
-  strike_duration_s: 1.0   # seconds — ball keeps moving freely until this ends
+  strike_duration_s: 1.0   # seconds — longest a charge lasts; contact ends it early
+  turn_rate_deg_s: 180     # max turn-in-place rate while tracking; 0 = fixed facing
 
 camera:
   width: 640
