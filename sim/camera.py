@@ -20,13 +20,17 @@ class RobotCamera:
         self.cam_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_CAMERA, cam_name)
         if self.cam_id < 0:
             raise ValueError(f"camera '{cam_name}' not found in model")
-        self._renderer = mujoco.Renderer(model, height, width)
+        # Created on first render so projection-only users (the tracker, the
+        # batch harness, CI) never need an OpenGL context.
+        self._renderer: mujoco.Renderer | None = None
         self.fovy = float(model.cam_fovy[self.cam_id])
         # focal length in pixels (square pixels, derived from vertical FOV)
         self.focal = 0.5 * height / math.tan(math.radians(self.fovy) / 2.0)
 
     def render_bgr(self, data: mujoco.MjData) -> np.ndarray:
         """Render an RGB frame and return it as BGR for OpenCV."""
+        if self._renderer is None:
+            self._renderer = mujoco.Renderer(self.model, self.height, self.width)
         self._renderer.update_scene(data, camera=self.cam_id)
         rgb = self._renderer.render()
         return rgb[:, :, ::-1].copy()
@@ -37,10 +41,11 @@ class RobotCamera:
         height = max(1, int(height))
         if self.width == width and self.height == height:
             return
-        self._renderer.close()
+        if self._renderer is not None:
+            self._renderer.close()
+            self._renderer = None
         self.width = width
         self.height = height
-        self._renderer = mujoco.Renderer(self.model, height, width)
         self.focal = 0.5 * height / math.tan(math.radians(self.fovy) / 2.0)
 
     def project(self, data: mujoco.MjData, world_xyz) -> Optional[Tuple[float, float, float]]:

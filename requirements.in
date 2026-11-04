@@ -1,0 +1,10 @@
+# Direct runtime dependencies (loose ranges). This is the file you edit.
+# requirements.txt is the generated lock file -- never edit it by hand.
+# Re-lock after editing (see README "Dependencies"):
+#   pip-compile --generate-hashes --strip-extras --allow-unsafe -o requirements.txt requirements.in
+mujoco>=3.9.0
+numpy>=2.0
+opencv-python>=4.9
+pyyaml>=6.0
+# Phase 2 (optional, add when wiring real CV perception):
+# ultralytics>=8.2

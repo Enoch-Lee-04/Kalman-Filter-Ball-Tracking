@@ -35,14 +35,14 @@ class FrameResult:
 
 
 class TrackingController:
-    def __init__(self, cfg: dict, rng: random.Random | None = None):
+    def __init__(self, cfg: dict, noise_rng: random.Random | None = None):
+        """noise_rng is the detector-noise stream; nothing else draws from it."""
         self.cfg = cfg
-        self.rng = rng or random.Random()
 
         fm = cfg["forward_model"]
         lat = cfg["latency_ms"]
 
-        self.detector = SimDetector(cfg, self.rng)
+        self.detector = SimDetector(cfg, noise_rng)
         self.kalman = KalmanCV(
             process_noise=fm["process_noise"],
             measurement_noise=fm["measurement_noise"],

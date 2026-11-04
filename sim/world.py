@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import math
-import random
 from typing import Optional, Sequence
 
 import mujoco
@@ -13,20 +12,25 @@ from .ball import Ball
 from .camera import RobotCamera
 from .orbit_camera import OrbitCamera
 from .render_pool import RenderPool
+from .rng import RandomStreams
 from .robot import Robot
+
+# Extra contact allowance (m) on top of robot radius + ball radius.
+STRIKE_SLOP_M = 0.12
 
 
 class SimWorld:
     def __init__(self, cfg: dict, pillars: Optional[Sequence] = None,
-                 rng: random.Random | None = None):
+                 streams: RandomStreams | None = None):
         self.cfg = cfg
-        self.rng = rng or random.Random()
+        self.streams = streams or RandomStreams.from_seed()
 
         self.model = arena.build_model(cfg, pillars)
         self.data = mujoco.MjData(self.model)
 
-        self.ball = Ball(cfg, self.rng)
-        self.robot = Robot(cfg, self.rng)
+        self.ball = Ball(cfg, motion_rng=self.streams.ball_motion,
+                         respawn_rng=self.streams.respawn)
+        self.robot = Robot(cfg, self.streams.respawn)
         self.ball.set_keep_out_center(*self.robot.position)
         self.camera = RobotCamera(
             self.model, arena.ROBOT_CAM,
@@ -73,10 +77,17 @@ class SimWorld:
     def strike_contact_distance(self) -> float:
         return self.robot.base_radius + self.ball.radius
 
-    def strike_connected(self, slop: float = 0.12) -> bool:
+    def strike_contact_limit(self, slop: float = STRIKE_SLOP_M) -> float:
+        """Center-to-center distance (m) that counts as a hit."""
+        return self.strike_contact_distance() + slop
+
+    def robot_ball_distance(self) -> float:
         bx, by, _ = self.ball.position
         rx, ry = self.robot.position
-        return math.hypot(bx - rx, by - ry) <= self.strike_contact_distance() + slop
+        return math.hypot(bx - rx, by - ry)
+
+    def strike_connected(self, slop: float = STRIKE_SLOP_M) -> bool:
+        return self.robot_ball_distance() <= self.strike_contact_limit(slop)
 
     def relocate_robot_to_ball(self) -> None:
         bx, by, _ = self.ball.position

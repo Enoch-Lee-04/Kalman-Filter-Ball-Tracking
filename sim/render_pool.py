@@ -15,12 +15,17 @@ class RenderPool:
         self.model = model
         self.width = max(1, int(width))
         self.height = max(1, int(height))
-        self._renderer = mujoco.Renderer(self.model, self.height, self.width)
+        # Created on first render, so a headless run never opens a GL context.
+        self._renderer: mujoco.Renderer | None = None
 
     def render_bgr(self, data: mujoco.MjData, camera) -> np.ndarray:
+        if self._renderer is None:
+            self._renderer = mujoco.Renderer(self.model, self.height, self.width)
         self._renderer.update_scene(data, camera=camera)
         rgb = self._renderer.render()
         return rgb[:, :, ::-1].copy()
 
     def close(self) -> None:
-        self._renderer.close()
+        if self._renderer is not None:
+            self._renderer.close()
+            self._renderer = None

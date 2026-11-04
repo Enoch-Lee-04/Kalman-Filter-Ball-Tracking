@@ -15,14 +15,13 @@ from __future__ import annotations
 
 import argparse
 import os
-import random
 import time
 
 import cv2
 import numpy as np
-import yaml
 
-from controller import TrackingController
+from config import load_config
+from simulation import Simulation
 from sim.world import SimWorld
 from viz import overlay
 from viz.camera_controls import CameraControls
@@ -31,11 +30,6 @@ from viz.view_controls import ViewState, handle_view_key
 PREVIEW_DIR = os.path.join("assets", "preview")
 WINDOW_NAME = "Forward Model"
 INSET_MARGIN = 5
-
-
-def load_config(path: str = "config.yaml") -> dict:
-    with open(path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
 
 
 def _draw_frame(frame: np.ndarray, result, controller, cfg, latency, status,
@@ -73,12 +67,10 @@ def _draw_frame(frame: np.ndarray, result, controller, cfg, latency, status,
 
 def run(headless_frames: int | None, show_top: bool, seed: int) -> None:
     cfg = load_config()
-    rng = random.Random(seed)
+    sim = Simulation(cfg, seed=seed)
+    world, controller = sim.world, sim.controller
 
-    world = SimWorld(cfg, rng=rng)
-    controller = TrackingController(cfg, rng=rng)
-
-    dt = cfg["sim"]["dt_ms"] / 1000.0
+    dt = sim.dt
     realtime = cfg["sim"]["realtime"] and headless_frames is None
     latency = cfg["latency_ms"]
     ui_scale = world.display_ui_scale()
@@ -92,61 +84,24 @@ def run(headless_frames: int | None, show_top: bool, seed: int) -> None:
             is_orbit_active=lambda: view_state.is_orbit,
         )
 
-    strike_timer = 0.0
-    status = "TRACKING"
-    strike_speed = cfg["robot"].get("strike_speed", 5.0)
-    strike_duration = cfg["robot"].get("strike_duration_s", 1.0)
-
     if headless_frames is not None:
         os.makedirs(PREVIEW_DIR, exist_ok=True)
 
-    t = 0.0
-    frame_idx = 0
     n = headless_frames if headless_frames is not None else 10 ** 12
-    residual_samples: list[float] = []
-    strikes = 0
-    hits = 0
-    misses = 0
+    stats = sim.stats
 
-    while frame_idx < n:
+    while sim.frame < n:
         loop_start = time.perf_counter()
-        striking = strike_timer > 0
-        world.step(dt, striking=striking)
-        t += dt
-
-        result = controller.step(t, dt, world.tracking_frame, world)
-
-        if not np.isnan(result.residual_px):
-            residual_samples.append(result.residual_px)
-
-        if result.confident and strike_timer <= 0:
-            status = "STRIKE"
-            strike_timer = strike_duration
-            strikes += 1
-
-        striking = strike_timer > 0
-        if striking:
-            if result.predicted_world is not None:
-                world.strike_toward((result.predicted_world[0], result.predicted_world[1]),
-                                    dt, strike_speed)
-            strike_timer -= dt
-            if strike_timer <= 0:
-                if world.strike_connected():
-                    hits += 1
-                else:
-                    misses += 1
-                world.ball.reset_far_from(*world.robot.position, facing=world.robot.facing)
-                world.robot.face_arena_center()
-                controller.reset()
-                status = "TRACKING"
+        info = sim.step()
+        frame_idx, result, striking = info.frame, info.result, info.striking
 
         if view_state.is_orbit:
             frame = world.render_orbit_view()
         else:
             frame = world.render_robot_display_view()
 
-        _draw_frame(frame, result, controller, cfg, latency, status, striking,
-                    ui_scale, view_state, world, hits, misses)
+        _draw_frame(frame, result, controller, cfg, latency, info.status, striking,
+                    ui_scale, view_state, world, stats.hits, stats.misses)
 
         if show_top:
             top = world.render_top_view()
@@ -178,17 +133,15 @@ def run(headless_frames: int | None, show_top: bool, seed: int) -> None:
                 if elapsed < dt:
                     time.sleep(dt - elapsed)
 
-        frame_idx += 1
-
     if headless_frames is None:
         cv2.destroyAllWindows()
     else:
         print(f"Saved preview frames to {PREVIEW_DIR}")
-        if residual_samples:
-            arr = np.array(residual_samples)
-            print(f"residual px: min={arr.min():.1f} median={np.median(arr):.1f} "
-                  f"p10={np.percentile(arr, 10):.1f} max={arr.max():.1f}")
-        print(f"strikes: {strikes}  hits: {hits}  misses: {misses}")
+        res = stats.residual_summary()
+        if res["count"]:
+            print(f"residual px: min={res['min']:.1f} median={res['median']:.1f} "
+                  f"p10={res['p10']:.1f} max={res['max']:.1f}")
+        print(f"strikes: {stats.strikes}  hits: {stats.hits}  misses: {stats.misses}")
 
 
 def main() -> None:

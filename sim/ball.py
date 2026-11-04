@@ -15,10 +15,15 @@ import numpy as np
 
 
 class Ball:
-    def __init__(self, cfg: dict, rng: random.Random | None = None):
+    def __init__(self, cfg: dict, motion_rng: random.Random | None = None,
+                 respawn_rng: random.Random | None = None):
+        """motion_rng drives the initial heading and every waypoint while the
+        ball cruises; respawn_rng is used only by reset_far_from. Keeping them
+        apart means a respawn never shifts the waypoints that follow it."""
         arena = cfg["arena"]
         bcfg = cfg["ball"]
-        self.rng = rng or random.Random()
+        self.motion_rng = motion_rng or random.Random()
+        self.respawn_rng = respawn_rng or random.Random()
 
         self.radius = bcfg["radius"]
         self.speed = bcfg["speed"]
@@ -36,9 +41,9 @@ class Ball:
 
         self.x = 0.0
         self.y = 0.0
-        self.heading = self.rng.uniform(-math.pi, math.pi)
+        self.heading = self.motion_rng.uniform(-math.pi, math.pi)
         self._waypoint_timer = 0.0
-        self._pick_waypoint()
+        self._pick_waypoint(self.motion_rng)
 
     # -- public API -------------------------------------------------------
     @property
@@ -54,10 +59,12 @@ class Ball:
 
     def reset_far_from(self, x: float, y: float, facing=None) -> None:
         """Place the ball away from (x, y) and, if a facing vector is given, in
-        front of the robot so it is immediately visible. Then pick a waypoint."""
+        front of the robot so it is immediately visible. Then pick a waypoint.
+        All draws come from the respawn stream."""
+        rng = self.respawn_rng
         for _ in range(80):
-            nx = self.rng.uniform(-self.hw, self.hw)
-            ny = self.rng.uniform(-self.hd, self.hd)
+            nx = rng.uniform(-self.hw, self.hw)
+            ny = rng.uniform(-self.hd, self.hd)
             if math.hypot(nx - x, ny - y) <= 1.2:
                 continue
             if facing is not None:
@@ -67,13 +74,13 @@ class Ball:
                     continue  # not in front of the camera
             self.x, self.y = nx, ny
             break
-        self.heading = self.rng.uniform(-math.pi, math.pi)
-        self._pick_waypoint()
+        self.heading = rng.uniform(-math.pi, math.pi)
+        self._pick_waypoint(rng)
 
     def step(self, dt: float, apply_keep_out: bool = True) -> Tuple[float, float, float]:
         self._waypoint_timer += dt
         if self._waypoint_timer >= self.waypoint_interval or self._reached_waypoint():
-            self._pick_waypoint()
+            self._pick_waypoint(self.motion_rng)
 
         desired = math.atan2(self.wy - self.y, self.wx - self.x)
         self.heading = _turn_toward(self.heading, desired, self.max_turn * dt)
@@ -89,11 +96,11 @@ class Ball:
         return self.position
 
     # -- internals --------------------------------------------------------
-    def _pick_waypoint(self) -> None:
+    def _pick_waypoint(self, rng: random.Random) -> None:
         m = self.margin
         for _ in range(20):
-            self.wx = self.rng.uniform(-self.hw + m, self.hw - m)
-            self.wy = self.rng.uniform(-self.hd + m, self.hd - m)
+            self.wx = rng.uniform(-self.hw + m, self.hw - m)
+            self.wy = rng.uniform(-self.hd + m, self.hd - m)
             if self.keep_out <= 0 or math.hypot(
                     self.wx - self.avoid_x, self.wy - self.avoid_y) > self.keep_out + 0.3:
                 break
