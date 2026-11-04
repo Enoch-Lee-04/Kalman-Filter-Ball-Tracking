@@ -2,9 +2,11 @@
 
 A stationary robot watches a ball roam a 3D arena and runs a **forward model**:
 it predicts where the ball will be after the unavoidable sense -> think -> move
-latency (180 ms), compares each prediction against reality, and corrects. Once
-its predictions are consistently accurate it **strikes** the ball and relocates,
-then begins tracking afresh from its new post.
+latency (180 ms), compares each prediction against reality, and corrects. While
+tracking it turns in place toward that prediction to keep the ball centred in
+view. Once its predictions are consistently accurate *and* a charge could reach
+the ball, it **strikes**, then begins tracking afresh from where the charge
+ended.
 
 > Built on **MuJoCo** (real 3D physics + offscreen rendering, installs cleanly on
 > Windows with no compiler) and **OpenCV** for the HUD. The Kalman forward model
@@ -31,7 +33,24 @@ sense (70 ms) + think (60 ms) + move (50 ms) = 180 ms horizon
 | Back-project | the pixel is mapped onto the floor plane -> world (x, y) |
 | Predict | a Kalman filter extrapolates 180 ms ahead |
 | Correct | when reality arrives, the residual (px error) updates the filter |
-| Act | once the residual stays small, the robot strikes and relocates |
+| Act | the robot turns toward the prediction; once the residual stays small and the ball is reachable, it strikes |
+
+### Strike rules
+
+* **Reach gate.** The robot strikes only if, assuming the ball keeps its
+  estimated velocity, it will still be within reach (`strike_speed x
+  strike_duration_s` + contact distance) when the charge window ends. The ball
+  is slower than the charge, so this is exactly "a straight-line intercept
+  exists". It uses the filter's estimate, never ground truth. While confident
+  but out of reach the robot holds (counted as `held_frames`).
+* **Contact every step.** Contact is checked on every step of the charge. The
+  first contact is a hit and ends the charge; a miss is a charge that never
+  touched the ball in its whole window.
+* **Respawn.** After a strike the robot turns back to the arena centre *first*,
+  then the ball is placed where that camera can actually see it.
+* **Turning.** `robot.turn_rate_deg_s` caps how fast the robot turns in place
+  (0 = fixed facing, the old behaviour). Turning never moves the ball: with no
+  strikes the ball's path still depends only on the seed.
 
 The on-screen **residual bar** is the heart of the demo: it starts large (the
 prediction overshoots) and shrinks as the velocity estimate locks on.
@@ -57,7 +76,7 @@ config.yaml        # all tunable parameters
 sim/
   arena.py         # builds the MuJoCo model (empty box; pillars wired for Phase 2)
   ball.py          # smooth random motion, wall bounce, robot keep-out zone
-  robot.py         # stationary base, faces the arena, relocates after a hit
+  robot.py         # base position + rate-limited yaw; turns in place, charges on a strike
   camera.py        # render + project (3D->2D) + unproject (pixel->ground plane)
   world.py         # owns MjModel/MjData, syncs mocap bodies each frame
   rng.py           # independent random streams: ball motion, respawns, detector noise
@@ -157,9 +176,10 @@ the tests and the 50-run harness on Ubuntu and Windows with rendering disabled.
 
 ## Status
 
-**Phase 1 complete:** empty arena, smooth random ball, stationary robot with a
-single camera, simulated detector, world-space Kalman forward model, latency
-pipeline, residual-driven confidence, strike + relocate, and the full HUD.
+**Phase 1 complete:** empty arena, smooth random ball, robot with a single
+camera that turns in place to follow the ball, simulated detector, world-space
+Kalman forward model, latency pipeline, residual-driven confidence, reach-gated
+strike with per-step contact, and the full HUD.
 
 **Phase 2 (next):** add pillars (`sim/arena.py` already accepts them) and swap
 `perception/sim_detector.py` for a real YOLO detector behind the same interface.

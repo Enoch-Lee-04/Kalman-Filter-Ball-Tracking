@@ -86,6 +86,7 @@ def aggregate(per_run: list[dict], run_seconds: float) -> dict:
         "hits_beyond_reach": sum(1 for rec in hit_recs if rec["beyond_reach"]),
         "median_start_dist_hit_m": med([rec["start_dist_m"] for rec in hit_recs]),
         "median_start_dist_miss_m": med([rec["start_dist_m"] for rec in miss_recs]),
+        "median_time_to_contact_s": med([rec["duration_s"] for rec in hit_recs]),
         "out_of_view_frac": 1.0 - seen / frames if frames else math.nan,
         "median_of_run_median_residual_px": med(medians),
     }
@@ -116,7 +117,8 @@ def format_summary(result: dict) -> str:
         f"misses that started beyond reach: {beyond}  "
         f"(hits that did: {a['hits_beyond_reach']})",
         f"median start distance: hit {a['median_start_dist_hit_m']:.2f} m, "
-        f"miss {a['median_start_dist_miss_m']:.2f} m",
+        f"miss {a['median_start_dist_miss_m']:.2f} m  "
+        f"(hits make contact after {a['median_time_to_contact_s']:.2f} s median)",
         f"ball out of camera view: {a['out_of_view_frac']:.1%} of frames",
         f"median of per-run median residual: {a['median_of_run_median_residual_px']:.2f} px",
     ])
