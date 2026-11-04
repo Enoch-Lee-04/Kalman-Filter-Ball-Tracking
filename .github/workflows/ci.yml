@@ -24,9 +24,9 @@ jobs:
       # loudly instead of needing a display.
       MUJOCO_GL: disable
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version-file: .python-version
           cache: pip
@@ -45,7 +45,7 @@ jobs:
           python -m tools.batch --seeds 0-49 --frames 1500
           --json batch-results.json --md "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: batch-results-${{ matrix.os }}
           path: batch-results.json
