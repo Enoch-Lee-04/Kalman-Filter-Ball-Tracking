@@ -60,6 +60,7 @@ sim/
   robot.py         # stationary base, faces the arena, relocates after a hit
   camera.py        # render + project (3D->2D) + unproject (pixel->ground plane)
   world.py         # owns MjModel/MjData, syncs mocap bodies each frame
+  rng.py           # independent random streams: ball motion, respawns, detector noise
 
 perception/
   base.py          # Detector interface (Phase 2 YOLO drops in here)
@@ -143,6 +144,13 @@ exactly which numbers moved:
 ```bash
 .venv\Scripts\python.exe -m tools.regression --record
 ```
+
+**Independent randomness.** Ball motion, respawns and detector noise each draw
+from their own stream (`sim/rng.py`), derived from the run seed and the stream
+name. With the robot standing still, the ball's path depends only on the seed
+and the ball/arena settings: filter, detector or camera changes cannot move it.
+Once the robot acts differently (strikes at another moment), the runs
+legitimately diverge from that point.
 
 CI (`.github/workflows/ci.yml`) installs the lock with hash checking, then runs
 the tests and the 50-run harness on Ubuntu and Windows with rendering disabled.

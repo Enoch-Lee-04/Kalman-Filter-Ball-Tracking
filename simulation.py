@@ -8,13 +8,13 @@ main.py does *to* a Simulation between steps; it never changes the numbers.
 from __future__ import annotations
 
 import math
-import random
 from dataclasses import asdict, dataclass, field
 from typing import Optional
 
 import numpy as np
 
 from controller import FrameResult, TrackingController
+from sim.rng import RandomStreams
 from sim.world import SimWorld
 
 TRACKING = "TRACKING"
@@ -103,9 +103,10 @@ class Simulation:
         self.seed = seed
         self.allow_strikes = allow_strikes
 
-        rng = random.Random(seed)
-        self.world = SimWorld(cfg, rng=rng)
-        self.controller = TrackingController(cfg, rng=rng)
+        # One independent stream per source of randomness (see sim/rng.py).
+        self.streams = RandomStreams.from_seed(seed)
+        self.world = SimWorld(cfg, streams=self.streams)
+        self.controller = TrackingController(cfg, noise_rng=self.streams.detector_noise)
 
         self.dt = cfg["sim"]["dt_ms"] / 1000.0
         rcfg = cfg["robot"]
