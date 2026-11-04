@@ -1,0 +1,16 @@
+{
+  "_comment": "Expected results of the canonical headless run. Regenerate with `python -m tools.regression --record` ONLY when a change is meant to alter results, and commit it together with that change.",
+  "seed": 7,
+  "frames": 1500,
+  "strikes": 2,
+  "hits": 2,
+  "misses": 0,
+  "residual_px": {
+    "count": 1425,
+    "min": 0.433127042,
+    "p10": 2.373546435,
+    "median": 11.312114677,
+    "mean": 14.177043391,
+    "max": 91.994965289
+  }
+}

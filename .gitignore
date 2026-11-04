@@ -16,3 +16,7 @@ agent-tools/
 # OS / editor
 .DS_Store
 Thumbs.db
+
+# Test / harness output
+.pytest_cache/
+batch-results.json

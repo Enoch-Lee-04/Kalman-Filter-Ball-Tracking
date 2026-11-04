@@ -48,8 +48,10 @@ ground-plane assumption and is what makes the residual actually converge.
 ## Architecture
 
 ```
-main.py            # loop: step sim -> render -> track -> draw -> (strike/relocate)
+main.py            # live window / preview PNGs: renders around a Simulation
+simulation.py      # one episode, no rendering: world + controller + strike logic
 controller.py      # the predict/act/correct controller
+config.py          # loads config.yaml, applies dotted-key overrides
 config.yaml        # all tunable parameters
 
 sim/
@@ -70,15 +72,35 @@ forward_model/
 
 viz/
   overlay.py       # match box, +180 ms box, overshoot vector, residual bar, HUD
+
+tools/
+  batch.py         # no-render batch harness (many seeds, config overrides)
+  regression.py    # seed-7 regression check / re-record
+
+tests/             # pytest suite; tests/golden/seed7.json holds expected results
 ```
 
 ## Setup
 
-Requires Python 3.12 (MuJoCo ships prebuilt wheels for it; 3.14 has none yet).
+Requires Python 3.12 (pinned in `.python-version`; MuJoCo ships prebuilt wheels for it).
 
 ```bash
 py -3.12 -m venv .venv
-.venv\Scripts\python.exe -m pip install -r requirements.txt
+.venv\Scripts\python.exe -m pip install -r requirements.txt -r requirements-dev.txt
+```
+
+### Dependencies
+
+`requirements.txt` and `requirements-dev.txt` are **lock files**: every package,
+including transitive ones, is pinned to an exact version and hash, so every
+machine and every CI run gets the identical stack. Do not edit them by hand.
+Edit `requirements.in` / `requirements-dev.in` (direct dependencies, loose
+ranges) and re-lock:
+
+```bash
+pip install pip-tools
+pip-compile --generate-hashes --strip-extras --allow-unsafe -o requirements.txt requirements.in
+pip-compile --generate-hashes --strip-extras --allow-unsafe -o requirements-dev.txt requirements-dev.in
 ```
 
 ## Run
@@ -96,6 +118,34 @@ py -3.12 -m venv .venv
 
 Tune behaviour in `config.yaml` (latency, ball speed/turn rate, Kalman noise,
 strike threshold). No code changes needed.
+
+## Tests, regression and batch runs
+
+```bash
+# unit tests + the seed-7 regression check
+.venv\Scripts\python.exe -m pytest
+
+# just the seed-7 check, printing which numbers moved
+.venv\Scripts\python.exe -m tools.regression
+
+# no-render harness: 50 seeds x 1500 frames in a few seconds
+.venv\Scripts\python.exe -m tools.batch
+.venv\Scripts\python.exe -m tools.batch --set forward_model.residual_threshold_px=6
+.venv\Scripts\python.exe -m tools.batch --standing-still --json results.json
+```
+
+**The regression rule.** `tests/golden/seed7.json` holds the strikes, hits,
+misses and residual statistics of the seed-7, 1500-frame headless run. A change
+that is *not* meant to alter results must leave it passing. A change that *is*
+meant to alter results re-records it in the same commit, so the diff shows
+exactly which numbers moved:
+
+```bash
+.venv\Scripts\python.exe -m tools.regression --record
+```
+
+CI (`.github/workflows/ci.yml`) installs the lock with hash checking, then runs
+the tests and the 50-run harness on Ubuntu and Windows with rendering disabled.
 
 ## Status
 
